@@ -1,0 +1,24 @@
+#cloud-config
+hostname: vm1
+manage_etc_hosts: true
+users:
+  - name: user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    plain_text_passwd: "rdma"
+ssh_pwauth: true
+package_update: true
+packages:
+  - rdma-core
+  - ibverbs-utils
+  - perftest
+  - iproute2
+  - ethtool
+  - tcpdump
+  - net-snmp
+  - net-snmp-utils
+runcmd:
+  - modprobe rdma_rxe
+  - rdma link add rxe0 type rxe netdev enp0s2
+  - ethtool -K enp0s2 tx off rx off tso off gso off gro off

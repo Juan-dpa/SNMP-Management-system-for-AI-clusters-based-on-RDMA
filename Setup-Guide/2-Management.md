@@ -45,11 +45,12 @@ Proyecto_Gestion/
 │   │   ├── calculator.py
 │   │   ├── writer.py
 │   │   ├── manager.py
-│   │   └── trap_receiver.py     # Placeholder para componente 2
-│   └── Agents/
-│       ├── roce_agent.py        # Agente SNMP para workers
-│       └── ovs_agent.py         # Agente SNMP para switch
-└── traffic_controller.py        # Simulador de tráfico (se copia a cada worker)
+│   │   └── requirements.txt
+│   ├── agents/
+│   │   ├── roce_agent.py        # Agente SNMP para workers
+│   │   └── ovs_agent.py         # Agente SNMP para switch
+│   └── controller/
+│       └── traffic_controller.py  # Simulador de tráfico (se copia a cada worker)
 ```
 
 ---
@@ -63,6 +64,34 @@ Cada entidad del cluster (3 workers + 1 switch) ejecuta `snmpd` con una extensi�
 El protocolo `pass_persist` funciona así: `snmpd` lanza el script Python como subproceso persistente. Cuando llega una petición SNMP GET o GETNEXT al subárbol configurado, `snmpd` escribe el comando y el OID por stdin del script. El script lee el contador correspondiente del sistema, y responde por stdout con tres líneas: OID, tipo SNMP y valor. El script queda vivo en un bucle infinito respondiendo peticiones. La comunicación es exclusivamente texto plano por stdin/stdout — todo el transporte UDP, comunidades y protocolo SNMP lo maneja `snmpd`.
 
 La configuración de `snmpd` en cada VM reside en `/etc/snmp/snmpd.conf` y contiene: dirección de escucha (UDP:161), community SNMP (`public`, restringida a la IP del gestor y localhost), y la línea `pass_persist` que registra el script bajo el OID raíz. El script se ubica en `/usr/local/bin/` dentro de cada VM.
+
+**Configuración de `snmpd.conf`**
+
+En cada worker (vm1, vm2, vm3):
+
+```
+sudo tee /etc/snmp/snmpd.conf << 'EOF'
+agentAddress udp:161
+rocommunity public 10.10.0.254
+rocommunity public localhost
+pass_persist .1.3.6.1.4.1.99999 /usr/local/bin/roce_agent.py
+EOF
+sudo systemctl restart snmpd
+```
+
+En el switch:
+
+```
+sudo tee /etc/snmp/snmpd.conf << 'EOF'
+agentAddress udp:161
+rocommunity public 10.10.0.254
+rocommunity public localhost
+pass_persist .1.3.6.1.4.1.99999.3 /usr/local/bin/ovs_agent.py
+EOF
+sudo systemctl restart snmpd
+```
+
+Sin esta configuración, `snmpd` no delega el subárbol OID al script Python y las consultas SNMP devuelven vacío.
 
 ### Agente de los workers (`roce_agent.py`)
 
@@ -258,7 +287,7 @@ influx -database roce_cluster -execute "DROP SERIES FROM /.*/"
 
 ### Prerrequisitos
 
-La topología debe estar funcionando (ver `README-RDMA-Virtualizacion_2.md`). InfluxDB debe estar corriendo en WSL. Las dependencias Python del gestor deben estar instaladas:
+La topología debe estar funcionando (ver `Setup-Guide/1-Topology.md`). InfluxDB debe estar corriendo en WSL. Las dependencias Python del gestor deben estar instaladas:
 
 ```
 pip install pysnmp influxdb --break-system-packages
@@ -338,11 +367,10 @@ snmpwalk -v2c -c public 10.10.0.10 .1.3.6.1.4.1.99999.3
 
 ### Paso 5 — Desplegar agentes (si se han modificado)
 
-Desde el directorio `Agents/`:
+Desde el directorio raíz del repositorio:
 
 ```
-cd src/Agents/
-../../scripts/deploy_agent.sh
+./scripts/deploy_agent.sh
 ```
 
 El script copia `roce_agent.py` a los 3 workers vía SCP, lo coloca en `/usr/local/bin/`, reinicia `snmpd`, y ejecuta un `snmpwalk` de verificación automáticamente.
@@ -360,7 +388,7 @@ Primero copiar el controlador a las VMs si no se ha hecho:
 
 ```
 for ip in 10.10.0.1 10.10.0.2 10.10.0.3; do
-    scp traffic_controller.py user@$ip:/home/user/
+    scp src/controller/traffic_controller.py user@$ip:/home/user/
 done
 ```
 

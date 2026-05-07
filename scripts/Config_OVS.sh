@@ -46,3 +46,15 @@ sudo ovs-vsctl -- set bridge br0 mirrors=@m \
 
 # Verificar el mirror
 sudo ovs-vsctl list mirror
+
+# Fuerza que el trafico RoCE sea ECN ENABLED
+
+sudo ovs-ofctl add-flow br0 -O OpenFlow13 "priority=100,ip,actions=set_field:2->ip_ecn,NORMAL"
+
+# Politicas de disciplina de cola RED, para marcar CE en cabeceras IP.
+
+for iface in enp0s2 enp0s3 enp0s4; do
+    sudo tc qdisc add dev $iface root red \
+        limit 100000 min 30000 max 60000 avpkt 1500 \
+        bandwidth 1000mbit ecn probability 0.1
+done

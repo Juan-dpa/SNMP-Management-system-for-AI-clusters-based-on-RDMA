@@ -6,28 +6,34 @@ Expone dos tablas bajo .1.3.6.1.4.1.99999:
   .1.3.6.1.4.1.99999.1.X.0  -> rocePortTable  (contadores RDMA)
   .1.3.6.1.4.1.99999.2.X.0  -> roceEcnTable   (contadores ECN)
 
-Instalación:
-  1. Copiar a /usr/local/bin/roce_agent.py
-  2. chmod +x /usr/local/bin/roce_agent.py
-  3. Añadir a /etc/snmp/snmpd.conf:
-       pass_persist .1.3.6.1.4.1.99999 /usr/local/bin/roce_agent.py
-  4. sudo systemctl restart snmpd
+Evalúa la métrica InCEPkts (Congestion Experienced) y envía un TRAP 
+automático si detecta un incremento (delta) >= 34 en el intervalo.
 """
 
 import sys
 import os
+import subprocess
+import time
 
 BASE_OID = ".1.3.6.1.4.1.99999"
 RXE_DEVICE = "rxe0"
 RXE_PORT = "1"
 
+# --- Configuración de Traps ---
+TRAP_DEST = "10.10.0.254:162"
+TRAP_COMMUNITY = "public"
+TRAP_OID = f"{BASE_OID}.0.1"  # OID genérico para identificar este trap específico
+CHECK_INTERVAL = 10           # Segundos mínimos entre evaluaciones de deltas para evitar spam en snmpwalks
+CE_TRAP_THRESHOLD = 34        # Umbral de tolerancia de paquetes CE por intervalo
+
+# --- Variables de estado global para Deltas ---
+last_ecn_values = {}
+last_check_time = 0
+
 # --- Definición de OIDs ---
-# rocePortTable: .1.3.6.1.4.1.99999.1.X.0
-# Contadores reales de hw_counters (el directorio counters/ no existe en Soft-RoCE)
 HW_COUNTERS_DIR = f"/sys/class/infiniband/{RXE_DEVICE}/ports/{RXE_PORT}/hw_counters"
 
 ROCE_PORT_TABLE = [
-    # (sub-oid, tipo_snmp, fichero, directorio)
     ("1.1.0",  "counter64", "sent_pkts",              HW_COUNTERS_DIR),
     ("1.2.0",  "counter64", "rcvd_pkts",              HW_COUNTERS_DIR),
     ("1.3.0",  "counter64", "rdma_sends",             HW_COUNTERS_DIR),
@@ -46,7 +52,6 @@ ROCE_PORT_TABLE = [
     ("1.16.0", "integer",   "lifespan",               HW_COUNTERS_DIR),
 ]
 
-# roceEcnTable: .1.3.6.1.4.1.99999.2.X.0
 ECN_FIELDS = [
     ("2.1.0", "InCEPkts"),
     ("2.2.0", "InECT0Pkts"),
@@ -55,8 +60,55 @@ ECN_FIELDS = [
 ]
 
 
+def send_trap(field_name, oid_afectado, delta):
+    """Ejecuta snmptrap en un subproceso para enviar la alerta."""
+    cmd = [
+        "snmptrap", "-v2c", "-c", TRAP_COMMUNITY, TRAP_DEST,
+        "", TRAP_OID,
+        oid_afectado, "c", str(delta),
+        f"{BASE_OID}.0.2", "s", f"Alta congestion ECN detectada: {delta} {field_name} en {CHECK_INTERVAL}s"
+    ]
+    try:
+        # Usamos stdout/stderr DEVNULL para no interferir con la comunicación stdin/stdout de pass_persist
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def evaluate_ecn_deltas(current_ecn_data):
+    """Calcula deltas y dispara traps si hay incrementos que superen el umbral."""
+    global last_ecn_values, last_check_time
+    
+    current_time = time.time()
+    
+    # Prevenir que lecturas masivas saturen el sistema o pisen el baseline
+    if current_time - last_check_time < CHECK_INTERVAL:
+        return
+
+    # Si es la primera ejecución, solo inicializamos la línea base
+    if not last_ecn_values:
+        last_ecn_values = current_ecn_data.copy()
+        last_check_time = current_time
+        return
+
+    # Solo evaluamos InCEPkts (OID 2.1.0)
+    field_name = "InCEPkts"
+    sub_oid = "2.1.0"
+    
+    current_val = current_ecn_data.get(field_name, 0)
+    last_val = last_ecn_values.get(field_name, 0)
+    
+    delta = current_val - last_val
+    if delta >= CE_TRAP_THRESHOLD:
+        full_oid = f"{BASE_OID}.{sub_oid}"
+        send_trap(field_name, full_oid, delta)
+
+    # Actualizamos el estado para la próxima evaluación (guardamos todas las métricas)
+    last_ecn_values = current_ecn_data.copy()
+    last_check_time = current_time
+
+
 def read_sysfs(directory, filename):
-    """Lee un valor entero de un fichero sysfs."""
     path = os.path.join(directory, filename)
     try:
         with open(path, "r") as f:
@@ -66,7 +118,6 @@ def read_sysfs(directory, filename):
 
 
 def read_ecn_counters():
-    """Lee contadores ECN de /proc/net/netstat (línea IpExt)."""
     result = {}
     try:
         with open("/proc/net/netstat", "r") as f:
@@ -92,7 +143,6 @@ def read_ecn_counters():
 
 
 def build_oid_map():
-    """Construye el mapa OID → (tipo, valor) con datos actuales."""
     oid_map = {}
 
     # rocePortTable
@@ -103,6 +153,10 @@ def build_oid_map():
 
     # roceEcnTable
     ecn_data = read_ecn_counters()
+    
+    # Inyectar aquí la evaluación de traps antes de rellenar el mapa
+    evaluate_ecn_deltas(ecn_data)
+    
     for sub_oid, field_name in ECN_FIELDS:
         full_oid = f"{BASE_OID}.{sub_oid}"
         value = ecn_data.get(field_name, 0)
@@ -112,12 +166,10 @@ def build_oid_map():
 
 
 def oid_sort_key(oid_str):
-    """Ordena OIDs numéricamente por cada componente."""
     return [int(x) for x in oid_str.strip(".").split(".")]
 
 
 def handle_get(oid):
-    """Responde a una petición SNMP GET."""
     oid_map = build_oid_map()
     if oid in oid_map:
         snmp_type, value = oid_map[oid]
@@ -129,7 +181,6 @@ def handle_get(oid):
 
 
 def handle_getnext(oid):
-    """Responde a una petición SNMP GETNEXT (para WALK)."""
     oid_map = build_oid_map()
     sorted_oids = sorted(oid_map.keys(), key=oid_sort_key)
 
@@ -145,7 +196,6 @@ def handle_getnext(oid):
 
 
 def main():
-    # Forzar line-buffered para que snmpd reciba las respuestas inmediatamente
     sys.stdout = os.fdopen(sys.stdout.fileno(), "w", buffering=1)
 
     while True:

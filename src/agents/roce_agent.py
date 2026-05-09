@@ -20,7 +20,7 @@ RXE_DEVICE = "rxe0"
 RXE_PORT = "1"
 
 # --- Configuración de Traps ---
-TRAP_DEST = "10.10.0.254:162"
+TRAP_DEST = "10.10.0.254:1162"
 TRAP_COMMUNITY = "public"
 TRAP_OID = f"{BASE_OID}.0.1"  # OID genérico para identificar este trap específico
 CHECK_INTERVAL = 10           # Segundos mínimos entre evaluaciones de deltas para evitar spam en snmpwalks

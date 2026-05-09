@@ -77,3 +77,11 @@ INFLUXDB_PORT = 8086
 INFLUXDB_DATABASE = "roce_cluster"
 INFLUXDB_RETENTION_POLICY = "one_day"
 INFLUXDB_RETENTION_DURATION = "24h"
+
+# --- Traps ---
+SNMP_TRAP_PORT = 1162  
+TRAP_OID_CONGESTION = "1.3.6.1.4.1.99999.0.1"
+TRAP_OID_MESSAGE = "1.3.6.1.4.1.99999.0.2"
+
+# Mapeo inverso de IP a worker_id para identificar el origen del Trap
+IP_TO_WORKER = {info["ip"]: wid for wid, info in WORKERS.items()}

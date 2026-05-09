@@ -20,6 +20,7 @@ from calculator import MetricsCalculator
 from manager import Manager
 from poller import SNMPPoller
 from writer import InfluxDBWriter
+from trap_receiver import SNMPTrapReceiver
 
 
 def setup_logging(debug: bool = False) -> None:
@@ -47,6 +48,10 @@ def main() -> None:
     setup_logging(debug=args.debug)
     logger = logging.getLogger("main")
 
+    # --- CAMBIO CLAVE: Crear y establecer el loop ANTES de iniciar pysnmp ---
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     # Crear componentes
     poller = SNMPPoller()
     calculator = MetricsCalculator()
@@ -65,10 +70,16 @@ def main() -> None:
 
     # Crear manager
     mgr = Manager(poller=poller, calculator=calculator, writer=writer)
+    
+    # Configurar y arrancar el Trap Receiver (ahora se enganchará al loop correcto)
+    trap_receiver = SNMPTrapReceiver(callback_func=writer.write_congestion_trap)
+    try:
+        trap_receiver.setup()
+    except Exception as e:
+        logger.error("No se pudo iniciar el servidor de Traps: %s", e)
+        sys.exit(1)
 
     # Manejar Ctrl+C
-    loop = asyncio.new_event_loop()
-
     def shutdown(sig, frame):
         logger.info("Recibida señal %s — cerrando...", sig)
         mgr.stop()

@@ -22,7 +22,9 @@ from models import (
     SwitchPortDerivedMetrics,
     SwitchPortRawMetrics,
     WorkerDerivedMetrics,
-    WorkerRawMetrics,
+    WorkerCongestionTrap,
+    WorkerRawMetrics
+    ,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,3 +202,16 @@ class InfluxDBWriter:
     def _ts(epoch: float) -> str:
         """Convierte epoch float a ISO 8601 para InfluxDB."""
         return datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def write_congestion_trap(self, trap: WorkerCongestionTrap) -> None:
+            """Escribe un evento de Trap (congestión ECN) en InfluxDB."""
+            point = {
+                "measurement": "roce_traps",
+                "tags": {"worker": trap.worker_id},
+                "time": self._ts(trap.timestamp),
+                "fields": {
+                    "in_ce_pkts": trap.in_ce_pkts,
+                    "description": trap.description,
+                },
+            }
+            self._write([point])

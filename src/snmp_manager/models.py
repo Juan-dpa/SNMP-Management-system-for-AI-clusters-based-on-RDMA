@@ -105,3 +105,12 @@ class PollCycle:
     timestamp: float
     workers: dict[str, WorkerRawMetrics | None]
     switch_ports: list[SwitchPortRawMetrics]
+
+@dataclass(frozen=True)
+class WorkerCongestionTrap:
+    """Evento asíncrono (Trap) recibido desde un worker por alta congestión."""
+
+    timestamp: float
+    worker_id: str
+    in_ce_pkts: int
+    description: str

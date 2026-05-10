@@ -60,3 +60,7 @@ for iface in enp0s2 enp0s3 enp0s4; do
         limit 100000 min 30000 max 60000 avpkt 1500 \
         bandwidth 1000mbit ecn probability 0.1
 done
+
+# Arrancar Snort ahora que el mirror0 ya existe
+echo "Arrancando Snort en mirror0..."
+sudo systemctl start snort

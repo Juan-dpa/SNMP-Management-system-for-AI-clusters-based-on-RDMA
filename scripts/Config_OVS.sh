@@ -37,12 +37,14 @@ sudo ovs-vsctl show
 sudo ovs-vsctl add-port br0 mirror0 -- set interface mirror0 type=internal
 sudo ip link set mirror0 up
 
-# Mirror: todo el tráfico de/hacia worker 3 → mirror0
+# Mirror: todo el tráfico de/hacia los 3 workers → mirror0
 sudo ovs-vsctl -- set bridge br0 mirrors=@m \
-    -- --id=@src get port enp0s4 \
+    -- --id=@w1 get port enp0s2 \
+    -- --id=@w2 get port enp0s3 \
+    -- --id=@w3 get port enp0s4 \
     -- --id=@dst get port mirror0 \
     -- --id=@m create mirror name=snort-mirror \
-       select-src-port=@src select-dst-port=@src output-port=@dst
+       select-src-port=@w1,@w2,@w3 select-dst-port=@w1,@w2,@w3 output-port=@dst
 
 # Verificar el mirror
 sudo ovs-vsctl list mirror

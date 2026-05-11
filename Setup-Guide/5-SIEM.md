@@ -69,7 +69,7 @@ Si se busca añadir GUI (recomendado), seguir la guía [win-kex](https://www.kal
 
 ### SNORT
 
-Vamos primero a procedes con una prueba sencilla de IDS. Para empezar:
+Vamos primero a proceder con una prueba sencilla de IDS. Para empezar:
 
 ```bash
 sudo systemctl stop snort
@@ -233,5 +233,7 @@ sudo nmap -sS -T4 10.10.0.3
 
 Y se verifica:
 
+```
 10:47:11 [WARNING] syslog_alert_manager — Alerta Snort recibida: attack=ET SCAN Suspicious inbound to PostgreSQL port 5432 [Classification: Potentially Bad Traffic] [Priority: 2] signature=1:2010939:3 protocol=TCP source=10.10.0.254:39741 victim=10.10.0.3:5432 worker=vm3 ovs_port=3
 10:47:11 [INFO   ] syslog_alert_manager — TODO Telegram/mitigación pendiente: <33>May 11 08:47:12 switch snort[3268]: [1:2010939:3] ET SCAN Suspicious inbound to PostgreSQL port 5432 [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 10.10.0.254:39741 -> 10.10.0.3:5432
+```

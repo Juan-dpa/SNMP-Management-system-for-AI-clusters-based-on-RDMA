@@ -63,7 +63,7 @@ Comprobar conexión con uno de los workers, por ejemplo:
 ping -c 3 10.10.0.3
 ```
 
-Si se busca añadir GUI (recomendado), seguir la guía [text](https://www.kali.org/docs/wsl/win-kex/#optional-steps)
+Si se busca añadir GUI (recomendado), seguir la guía [win-kex](https://www.kali.org/docs/wsl/win-kex/#optional-steps)
 
 ## 4. Implementación
 

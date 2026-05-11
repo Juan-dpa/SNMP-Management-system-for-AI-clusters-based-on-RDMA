@@ -85,3 +85,14 @@ TRAP_OID_MESSAGE = "1.3.6.1.4.1.99999.0.2"
 
 # Mapeo inverso de IP a worker_id para identificar el origen del Trap
 IP_TO_WORKER = {info["ip"]: wid for wid, info in WORKERS.items()}
+
+# --- Syslog / Snort ---
+SYSLOG_LISTEN_HOST = "0.0.0.0"
+SYSLOG_LISTEN_PORT = 1514
+SNORT_ALERT_COOLDOWN_SECONDS = 30
+
+# Mapeos para traducir la IP reportada por Snort a entidades del cluster.
+IP_TO_WORKER_OVS_PORT = {
+    info["ip"]: info["ovs_port"]
+    for info in WORKERS.values()
+}

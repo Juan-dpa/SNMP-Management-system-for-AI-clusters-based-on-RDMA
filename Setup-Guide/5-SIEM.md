@@ -69,7 +69,7 @@ Si se busca añadir GUI (recomendado), seguir la guía [text](https://www.kali.o
 
 ### SNORT
 
-Vamos primero a procedes con una prueba sencilla de IDS. Para empenzar:
+Vamos primero a procedes con una prueba sencilla de IDS. Para empezar:
 
 ```bash
 sudo systemctl stop snort
@@ -135,3 +135,103 @@ nc -u -l -p 1514
 ```
 
 Finalmente lanzar el comando NMAP que hemos usado anteriormente, y ver la salida en el terminal host. Si todo está correctamente configurado, deberán aparecer las alertas. Esto implica que ya podemos proceder a implementar cambios en el gestor.
+
+### Reglas ET (Emerging Threats)
+
+Es un conjunto de reglas mantenido por Proofpoint y la comunidad de ciberseguridad. Se actualiza a diario y tiene firmas espectaculares para detectar malware moderno, C2 (Command & Control), mineros de criptomonedas y herramientas de hacking (como Nmap o Hydra).
+
+La idea es que el set de reglas que trae Snort 2.9 por defecto es extremadamente débil. Los siguientes pasos muestran cómo integrarlas. Dentro del host WSL.
+
+```bash
+cd /tmp
+
+# Descargar las reglas de ET Open para Snort
+wget https://rules.emergingthreats.net/open/snort-2.9.0/emerging.rules.tar.gz
+# 1. Enviar el archivo comprimido a la carpeta temporal del Switch
+scp emerging.rules.tar.gz user@10.10.0.10:/tmp/
+
+# 2. Conectarse por SSH y ejecutar todo el proceso de configuración
+ssh user@10.10.0.10 << 'EOF'
+  echo "--- 1. Descomprimiendo reglas ---"
+  cd /tmp
+  tar -zxf emerging.rules.tar.gz
+
+  echo "--- 2. Copiando reglas al directorio de Snort ---"
+  sudo cp /tmp/rules/*.rules /etc/snort/rules/
+
+  echo "--- 3. Modificando snort.conf ---"
+  # Este comando comprueba si las reglas ya están añadidas para no duplicarlas
+  if ! grep -q "emerging-scan.rules" /etc/snort/snort.conf; then
+      sudo tee -a /etc/snort/snort.conf > /dev/null << 'RULES'
+
+# --- Reglas ET Open añadidas automáticamente ---
+include $RULE_PATH/emerging-scan.rules
+include $RULE_PATH/emerging-malware.rules
+include $RULE_PATH/emerging-botcc.rules
+include $RULE_PATH/emerging-current_events.rules
+RULES
+      echo "Includes añadidos correctamente."
+  else
+      echo "Los includes ya existían en snort.conf."
+  fi
+
+  echo "--- 4. Reiniciando Snort ---"
+  sudo systemctl restart snort
+  
+  echo "--- ESTADO DE SNORT ---"
+  sudo systemctl status snort --no-pager | grep Active
+EOF
+```
+
+Dentro del Switch, se requiere modificar la variable externa IP que define multiples reglas, el tráfico que se va a recibir de la red Hyper-V WSL forma parte de la local (10.10.0.254/24).
+
+```bash
+sudo sed -i 's/^ipvar EXTERNAL_NET.*/ipvar EXTERNAL_NET any/' /etc/snort/snort.conf
+sudo nano /etc/snort/snort.debian.conf
+```
+
+Y pegar cambiar a esta configuración:
+
+```
+DEBIAN_SNORT_STARTUP="boot"
+DEBIAN_SNORT_HOME_NET="10.10.0.0/24"
+DEBIAN_SNORT_OPTIONS=""
+DEBIAN_SNORT_INTERFACE="mirror0"
+DEBIAN_SNORT_SEND_STAT="false"
+DEBIAN_SNORT_STATS_RCPT="root"
+DEBIAN_SNORT_STATS_THRESHOLD="1"
+```
+
+```bash
+sudo systemctl restart snort
+```
+
+### Prueba Final
+
+Con Hydra. Vamos a hacer un ataque agresivo, y ver si Snort lo detecta y el Gestor recibe por Syslog la alerta.
+
+En Kali:
+
+```bash
+seq -f "user%03g" 1 50 > users.txt
+seq -f "pass%03g" 1 200 > passwords.txt
+hydra -L users.txt -P passwords.txt -t 16 -V ssh://10.10.0.3
+```
+
+En la terminal del gestor, se debe apreciar:
+
+```
+10:44:59 [WARNING] syslog_alert_manager — Alerta Snort recibida: attack=DBG SSH SYN to target signature=1:9900001:1 protocol=TCP source=10.10.0.254:46390 victim=10.10.0.3:22 worker=vm3 ovs_port=3
+10:44:59 [INFO   ] syslog_alert_manager — TODO Telegram/mitigación pendiente: <33>May 11 08:45:01 switch snort[3268]: [1:9900001:1] DBG SSH SYN to target {TCP} 10.10.0.254:46390 -> 10.10.0.3:22
+```
+
+Con NMAP, de igual manera en Kali:
+
+```bash
+sudo nmap -sS -T4 10.10.0.3
+```
+
+Y se verifica:
+
+10:47:11 [WARNING] syslog_alert_manager — Alerta Snort recibida: attack=ET SCAN Suspicious inbound to PostgreSQL port 5432 [Classification: Potentially Bad Traffic] [Priority: 2] signature=1:2010939:3 protocol=TCP source=10.10.0.254:39741 victim=10.10.0.3:5432 worker=vm3 ovs_port=3
+10:47:11 [INFO   ] syslog_alert_manager — TODO Telegram/mitigación pendiente: <33>May 11 08:47:12 switch snort[3268]: [1:2010939:3] ET SCAN Suspicious inbound to PostgreSQL port 5432 [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 10.10.0.254:39741 -> 10.10.0.3:5432

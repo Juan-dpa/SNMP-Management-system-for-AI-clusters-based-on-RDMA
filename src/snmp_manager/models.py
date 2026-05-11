@@ -114,3 +114,20 @@ class WorkerCongestionTrap:
     worker_id: str
     in_ce_pkts: int
     description: str
+
+
+@dataclass(frozen=True)
+class SnortAlert:
+    """Alerta de Snort recibida por Syslog."""
+
+    timestamp: float
+    raw_message: str
+    signature_id: str | None
+    attack_type: str
+    protocol: str | None
+    source_ip: str
+    source_port: int | None
+    victim_ip: str
+    victim_port: int | None
+    victim_worker: str | None
+    victim_ovs_port: int | None

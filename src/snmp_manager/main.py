@@ -19,6 +19,7 @@ import sys
 from calculator import MetricsCalculator
 from manager import Manager
 from poller import SNMPPoller
+from syslog_alert_manager import SyslogAlertManager
 from writer import InfluxDBWriter
 from trap_receiver import SNMPTrapReceiver
 
@@ -70,13 +71,21 @@ def main() -> None:
 
     # Crear manager
     mgr = Manager(poller=poller, calculator=calculator, writer=writer)
-    
+
     # Configurar y arrancar el Trap Receiver (ahora se enganchará al loop correcto)
     trap_receiver = SNMPTrapReceiver(callback_func=writer.write_congestion_trap)
     try:
         trap_receiver.setup()
     except Exception as e:
         logger.error("No se pudo iniciar el servidor de Traps: %s", e)
+        sys.exit(1)
+
+    # Configurar y arrancar el manager Syslog/Snort en el mismo event loop
+    syslog_alert_manager = SyslogAlertManager()
+    try:
+        loop.run_until_complete(syslog_alert_manager.start())
+    except Exception as e:
+        logger.error("No se pudo iniciar el servidor Syslog/Snort: %s", e)
         sys.exit(1)
 
     # Manejar Ctrl+C
@@ -93,6 +102,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        syslog_alert_manager.close()
         writer.close()
         loop.close()
         logger.info("Gestor finalizado")

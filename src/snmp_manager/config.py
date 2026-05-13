@@ -96,3 +96,7 @@ IP_TO_WORKER_OVS_PORT = {
     info["ip"]: info["ovs_port"]
     for info in WORKERS.values()
 }
+
+# --- Telegram ---
+TELEGRAM_BOT_TOKEN = "8740623942:AAGTm2Z0gAlnfXickJz8VlmMw8uQ3JF29_s"
+TELEGRAM_CHAT_ID = "1229403909"

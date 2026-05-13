@@ -7,7 +7,9 @@ decodifica los varBinds y ejecuta un callback con un DTO.
 
 import logging
 import time
+import asyncio
 
+from telegram_alert import TelegramAlert
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.entity import config, engine
 from pysnmp.entity.rfc3413 import ntfrcv
@@ -31,6 +33,7 @@ class SNMPTrapReceiver:
     def __init__(self, callback_func):
         self._engine = engine.SnmpEngine()
         self._callback = callback_func
+        self._telegram = TelegramAlert()
 
     def setup(self) -> None:
         """Configura el transporte UDP y los callbacks en pysnmp."""
@@ -91,6 +94,8 @@ class SNMPTrapReceiver:
                 "¡Trap de Congestión procesado! [%s] IP: %s - %s", 
                 worker_id, source_ip, description
             )
+            # Lanza la alerta de Telegram de forma asíncrona (fire-and-forget)
+            asyncio.create_task(self._telegram.send_trap_alert(trap_data.worker_id, source_ip, str(trap_data.in_ce_pkts)))
             self._callback(trap_data)
         else:
             logger.error(

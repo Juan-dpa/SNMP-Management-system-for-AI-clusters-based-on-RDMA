@@ -6,10 +6,12 @@ Oculta al main la recepción UDP, el throttling y el logging de alertas.
 
 import logging
 import time
+import asyncio
 
 from config import SNORT_ALERT_COOLDOWN_SECONDS
 from models import SnortAlert
 from syslog_receiver import SyslogReceiver
+from telegram_alert import TelegramAlert
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +26,29 @@ class SyslogAlertManager:
         self._cooldown_seconds = cooldown_seconds
         self._cooldowns: dict[str, float] = {}
         self._receiver = SyslogReceiver(callback_func=self._handle_alert)
-
+        self._telegram = TelegramAlert()
+ 
     async def start(self) -> None:
-        """Arranca el receptor Syslog asociado al manager."""
+        """Arranca el receptor Syslog y la escucha de Telegram."""
+        # Creamos la tarea de Telegram en segundo plano
+        asyncio.create_task(self._telegram.start_polling())
+        
+        # Arrancamos Syslog
         await self._receiver.start()
 
     def close(self) -> None:
         """Cierra el receptor Syslog asociado al manager."""
         self._receiver.close()
 
+
     def _handle_alert(self, alert: SnortAlert) -> None:
+        # --- WHITELIST: Ignorar tráfico legítimo de nuestro propio Gestor ---
+        if alert.source_ip == "10.10.0.254" and alert.victim_port == 161:
+            return
+        # --------------------------------------------------------------------
+
+        now = time.time()
+        last_seen = self._cooldowns.get(alert.victim_ip)
         """Procesa alertas Snort con throttling temporal por IP víctima."""
         now = time.time()
         last_seen = self._cooldowns.get(alert.victim_ip)
@@ -67,4 +82,5 @@ class SyslogAlertManager:
                 else MISSING_PORT
             ),
         )
-        logger.info("TODO Telegram/mitigación pendiente: %s", alert.raw_message)
+        # Enviar alerta a Telegram de forma asíncrona
+        asyncio.create_task(self._telegram.send_alert(alert))
